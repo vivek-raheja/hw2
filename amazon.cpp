@@ -128,3 +128,4 @@ void displayProducts(vector<Product*>& hits)
         resultNo++;
     }
 }
+
