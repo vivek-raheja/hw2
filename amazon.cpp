@@ -9,6 +9,7 @@
 #include "db_parser.h"
 #include "product_parser.h"
 #include "util.h"
+#include "mydatastore.h"
 
 using namespace std;
 struct ProdNameSorter {
@@ -17,6 +18,16 @@ struct ProdNameSorter {
     }
 };
 void displayProducts(vector<Product*>& hits);
+bool addToCart(MyDataStore ds, string userName, Product* product);
+
+std::map<std::string, vector<Product*> > currentCart;
+std::map<std::string, vector<int> > currentCartQty;
+
+bool checkUser(MyDataStore ds, string userName);
+User* findUser(MyDataStore ds, string userName);
+bool buyCart(MyDataStore ds, string userName);
+
+bool viewCart(MyDataStore ds, string userName);
 
 int main(int argc, char* argv[])
 {
@@ -29,9 +40,7 @@ int main(int argc, char* argv[])
      * Declare your derived DataStore object here replacing
      *  DataStore type to your derived type
      ****************/
-    DataStore ds;
-
-
+    MyDataStore ds = MyDataStore();
 
     // Instantiate the individual section and product parsers we want
     ProductSectionParser* productSectionParser = new ProductSectionParser;
@@ -50,6 +59,7 @@ int main(int argc, char* argv[])
         cerr << "Error parsing!" << endl;
         return 1;
     }
+    
 
     cout << "=====================================" << endl;
     cout << "Menu: " << endl;
@@ -90,6 +100,52 @@ int main(int argc, char* argv[])
                 hits = ds.search(terms, 1);
                 displayProducts(hits);
             }
+			else if ( cmd == "ADD" ) {
+                string term;
+                vector<string> terms;
+                while(ss >> term) {
+                    term = convToLower(term);
+                    terms.push_back(term);
+                }
+                string username = terms[0];
+                int hit_index;
+                stringstream obj;  
+                obj << terms[1];
+                obj >> hit_index;
+                //terms[0] username
+                //terms[1] index
+                if((unsigned)hit_index <= hits.size() && hit_index > 0) {
+					hit_index = hit_index - 1;
+					if(addToCart(ds, username, hits[hit_index])) {
+						cout << username << " ADDED PRODUCT " << (*hits[hit_index]).getName() << endl;
+					} else {
+						cout << "Check username" << endl;
+					}
+				} else {
+					cout << "Select a proper product" << endl;
+				}
+            }
+            else if ( cmd == "VIEWCART" ) {
+                string term;
+                vector<string> terms;
+                while(ss >> term) {
+                    term = convToLower(term);
+                    terms.push_back(term);
+                }
+                //terms[0] username
+                string username = terms[0];
+                viewCart(ds, username);
+            }
+            else if ( cmd == "BUYCART" ) {
+                string term;
+                vector<string> terms;
+                while(ss >> term) {
+                    term = convToLower(term);
+                    terms.push_back(term);
+                }
+                string username = terms[0];
+                buyCart(ds, username);
+            }
             else if ( cmd == "QUIT") {
                 string filename;
                 if(ss >> filename) {
@@ -100,10 +156,6 @@ int main(int argc, char* argv[])
                 done = true;
             }
 	    /* Add support for other commands here */
-
-
-
-
             else {
                 cout << "Unknown command" << endl;
             }
@@ -129,3 +181,109 @@ void displayProducts(vector<Product*>& hits)
     }
 }
 
+bool checkUser(MyDataStore ds, string userName) {
+	for(vector<User*>::iterator it = ds.allUsers.begin(); it != ds.allUsers.end(); ++it) {
+        if((*it)->getName() == userName) {
+			return true;
+		}
+    }
+    return false;
+}
+
+User* findUser(MyDataStore ds, string userName) {
+	for(vector<User*>::iterator it = ds.allUsers.begin(); it != ds.allUsers.end(); ++it) {
+        if((*it)->getName() == userName) {
+			return *it;
+		}
+    }
+    return NULL;
+}
+
+bool addToCart(MyDataStore ds, string userName, Product* product) {
+	if(checkUser(ds, userName)) {
+		//Check for product quantity
+		int index = 0;
+		int foundIndex = -1;
+		for(vector<Product*>::iterator it = currentCart[userName].begin(); it != currentCart[userName].end(); ++it) {
+			if((*it) == product) {
+				//Product is already available
+				foundIndex = index;
+			}
+			index++;
+		}
+		if(foundIndex == -1) {
+			currentCart[userName].push_back(product);
+			currentCartQty[userName].push_back(1);
+		} else {
+			currentCartQty[userName][foundIndex] = currentCartQty[userName][foundIndex] + 1;
+		}
+		return true; 
+	}
+	return false;
+}
+
+bool viewCart(MyDataStore ds, string userName) {
+	if(checkUser(ds, userName)) {
+		map<std::string, vector<Product*> >::iterator it = currentCart.find(userName);
+		if(it != currentCart.end()) {
+			vector<Product*> userCart = currentCart[userName];
+			vector<int> userQty = currentCartQty[userName];
+			cout << "YOUR CART" << endl;
+			int itemCount = 1;
+			for(vector<Product*>::iterator it = userCart.begin(); it != userCart.end(); ++it) {
+				Product* product = *it;
+				if(product == NULL)
+					continue;
+					
+				cout << "Product " << itemCount << endl;
+				cout << (*it)->displayString() << endl;
+				cout << "YOU ARE PURCHASING " << userQty[itemCount-1] << " UNITS" << endl;
+				cout << "**************" << endl;
+				itemCount++;
+			}
+		} else {
+			cout << "Cart is empty!" << endl;
+		}
+		return true;
+	}
+	return false;
+}
+
+bool buyCart(MyDataStore ds, string userName) {
+	if(checkUser(ds, userName)) {
+		User* user = findUser(ds, userName);
+		
+		map<std::string, vector<Product*> >::iterator it = currentCart.find(userName);
+		if(it != currentCart.end()) {
+			vector<Product*> userCart = currentCart[userName];
+			vector<int> userQty = currentCartQty[userName];
+			int counter = 0;
+			
+			for(vector<Product*>::iterator it = userCart.begin(); it != userCart.end(); ++it) {
+				Product* product = *it;
+				if(product == NULL)
+					continue;
+					
+				if( product->getQty() > 0) {
+					currentCart[userName][counter] = NULL;
+					
+					if(product->getPrice() < user->getBalance()) {
+						user->deductAmount(product->getPrice());
+						product->subtractQty(1);
+						cout << "Product " << product->getName() << " purchase done" << endl;
+					} else {
+						cout << "Please recharge to buy " << product->getName() << "!" << endl;
+					}
+				} else {
+					cout << "PRODUCT " << product->getName() << " NOT AVAILABLE!" << endl;
+				}
+				
+				counter++;
+			}
+		} else {
+			cout << "Cart is empty!" << endl;
+		}
+		return true;
+	}
+	return false;
+}
